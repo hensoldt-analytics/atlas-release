@@ -774,7 +774,7 @@ public class GraphBackedMetadataRepositoryTest {
     @GraphTransaction
     String getGUID() {
         AtlasVertex tableVertex = getTableEntityVertex();
-
+        
         String guid = AtlasGraphUtilsV1.getEncodedProperty(tableVertex, Constants.GUID_PROPERTY_KEY, String.class);
         if (guid == null) {
             Assert.fail();
