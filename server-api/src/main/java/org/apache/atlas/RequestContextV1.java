@@ -47,7 +47,6 @@ public class RequestContextV1 {
 
     private String user;
 
-
     private RequestContextV1() {
     }
 
