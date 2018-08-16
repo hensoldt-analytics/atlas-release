@@ -24,15 +24,21 @@ import org.apache.atlas.discovery.AtlasDiscoveryService;
 import org.apache.atlas.exception.AtlasBaseException;
 import org.apache.atlas.model.discovery.AtlasSearchResult;
 import org.apache.atlas.model.discovery.SearchParameters;
+import org.apache.atlas.model.discovery.SearchParameters.FilterCriteria;
+import org.apache.atlas.model.discovery.SearchParameters.Operator;
 import org.apache.atlas.model.impexp.ExportImportAuditEntry;
+import org.apache.atlas.model.instance.AtlasEntityHeader;
 import org.apache.atlas.repository.ogm.DataAccess;
 import org.apache.atlas.repository.ogm.ExportImportAuditEntryDTO;
 import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.util.CollectionUtils;
 
 import javax.inject.Inject;
 import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
 
 @AtlasService
 public class ExportImportAuditService {
@@ -59,65 +65,100 @@ public class ExportImportAuditService {
         return dataAccess.load(entry);
     }
 
-    public AtlasSearchResult get(String userName, String operation, String sourceCluster, String targetCluster,
-                                 String startTime, String endTime,
-                                 int limit, int offset) throws AtlasBaseException {
-        SearchParameters.FilterCriteria criteria = new SearchParameters.FilterCriteria();
-        criteria.setCriterion(new ArrayList<SearchParameters.FilterCriteria>());
+    public List<ExportImportAuditEntry> get(String userName, String operation, String cluster,
+                                            String startTime, String endTime,
+                                            int limit, int offset) throws AtlasBaseException {
+        FilterCriteria criteria = new FilterCriteria(FilterCriteria.Condition.AND, new ArrayList<FilterCriteria>());
 
-        addSearchParameters(criteria, userName, operation, sourceCluster, targetCluster, startTime, endTime);
+        addSearchParameters(criteria, userName, operation, cluster, startTime, endTime);
 
         SearchParameters searchParameters = getSearchParameters(limit, offset, criteria);
+        searchParameters.setAttributes(getAuditEntityAttributes());
 
-        return discoveryService.searchWithParameters(searchParameters);
+        AtlasSearchResult result = discoveryService.searchWithParameters(searchParameters);
+        return toExportImportAuditEntry(result);
     }
 
-    private SearchParameters getSearchParameters(int limit, int offset, SearchParameters.FilterCriteria criteria) {
+    private Set<String> getAuditEntityAttributes() {
+        return ExportImportAuditEntryDTO.getAttributes();
+    }
+
+    private List<ExportImportAuditEntry> toExportImportAuditEntry(AtlasSearchResult result) {
+        List<ExportImportAuditEntry> ret = new ArrayList<>();
+        if(CollectionUtils.isEmpty(result.getEntities())) {
+            return ret;
+        }
+
+        for (AtlasEntityHeader entityHeader : result.getEntities()) {
+            ExportImportAuditEntry entry = ExportImportAuditEntryDTO.from(entityHeader.getGuid(),
+                                                                            entityHeader.getAttributes());
+            if(entry == null) {
+                continue;
+            }
+
+            ret.add(entry);
+        }
+
+        return ret;
+    }
+
+    private SearchParameters getSearchParameters(int limit, int offset, FilterCriteria criteria) {
         SearchParameters searchParameters = new SearchParameters();
         searchParameters.setTypeName(ENTITY_TYPE_NAME);
         searchParameters.setEntityFilters(criteria);
         searchParameters.setLimit(limit);
         searchParameters.setOffset(offset);
+
         return searchParameters;
     }
 
-    private void addSearchParameters(SearchParameters.FilterCriteria criteria,
-                                     String userName, String operation, String sourceCluster, String targetCluster,
-                                     String startTime, String endTime) {
-
+    private void addSearchParameters(FilterCriteria criteria, String userName, String operation,
+                                     String cluster, String startTime, String endTime) {
         addParameterIfValueNotEmpty(criteria, ExportImportAuditEntryDTO.PROPERTY_USER_NAME, userName);
         addParameterIfValueNotEmpty(criteria, ExportImportAuditEntryDTO.PROPERTY_OPERATION, operation);
-        addParameterIfValueNotEmpty(criteria, ExportImportAuditEntryDTO.PROPERTY_SOURCE_CLUSTER_NAME, sourceCluster);
-        addParameterIfValueNotEmpty(criteria, ExportImportAuditEntryDTO.PROPERTY_TARGET_CLUSTER_NAME, targetCluster);
         addParameterIfValueNotEmpty(criteria, ExportImportAuditEntryDTO.PROPERTY_START_TIME, startTime);
         addParameterIfValueNotEmpty(criteria, ExportImportAuditEntryDTO.PROPERTY_END_TIME, endTime);
+
+        addClusterFilterCriteria(criteria, cluster);
     }
 
-    private void addParameterIfValueNotEmpty(SearchParameters.FilterCriteria criteria,
-                                             String attributeName, String value) {
-        if(StringUtils.isEmpty(value)) return;
-
-        boolean isFirstCriteria = criteria.getAttributeName() == null;
-        SearchParameters.FilterCriteria cx = isFirstCriteria
-                                                ? criteria
-                                                : new SearchParameters.FilterCriteria();
-
-        setCriteria(cx, attributeName, value);
-
-        if(isFirstCriteria) {
-            cx.setCondition(SearchParameters.FilterCriteria.Condition.AND);
+    private void addClusterFilterCriteria(FilterCriteria parentCriteria, String cluster) {
+        if (StringUtils.isEmpty(cluster)) {
+            return;
         }
 
-        if(!isFirstCriteria) {
-            criteria.getCriterion().add(cx);
-        }
+        FilterCriteria criteria = new FilterCriteria(FilterCriteria.Condition.OR, new ArrayList<FilterCriteria>());
+
+        addParameterIfValueNotEmpty(criteria, ExportImportAuditEntryDTO.PROPERTY_SOURCE_CLUSTER_NAME, cluster);
+        addParameterIfValueNotEmpty(criteria, ExportImportAuditEntryDTO.PROPERTY_TARGET_CLUSTER_NAME, cluster);
+
+        parentCriteria.getCriterion().add(criteria);
     }
 
-    private SearchParameters.FilterCriteria setCriteria(SearchParameters.FilterCriteria criteria, String attributeName, String value) {
-        criteria.setAttributeName(attributeName);
-        criteria.setAttributeValue(value);
-        criteria.setOperator(SearchParameters.Operator.EQ);
+    private void addParameterIfValueNotEmpty(FilterCriteria criteria, String attributeName, String value) {
+        if(StringUtils.isEmpty(value)) {
+            return;
+        }
 
-        return criteria;
+        criteria.getCriterion().add(new FilterCriteria(attributeName, Operator.EQ, value));
+    }
+
+    public void add(String userName, String sourceCluster, String targetCluster, String operation,
+                               String result, long startTime, long endTime, boolean hasData) throws AtlasBaseException {
+        if(!hasData) return;
+
+        ExportImportAuditEntry entry = new ExportImportAuditEntry();
+
+        entry.setUserName(userName);
+        entry.setSourceClusterName(sourceCluster);
+        entry.setTargetClusterName(targetCluster);
+        entry.setOperation(operation);
+        entry.setResultSummary(result);
+        entry.setStartTime(startTime);
+        entry.setEndTime(endTime);
+
+        save(entry);
+        LOG.info("addAuditEntry: user: {}, source: {}, target: {}, operation: {}", entry.getUserName(),
+                entry.getSourceClusterName(), entry.getTargetClusterName(), entry.getOperation());
     }
 }

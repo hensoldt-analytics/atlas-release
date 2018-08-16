@@ -1004,6 +1004,7 @@ public class EntityGraphMapper {
             for (AtlasClassification classification : classifications) {
                 addClassificationWithNoMetadataUpdate(context, instanceVertex, entityType, classification);
             }
+
             updateModificationMetadata(instanceVertex);
         }
     }
