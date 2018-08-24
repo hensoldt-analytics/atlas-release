@@ -116,7 +116,7 @@ public class AdminExportImportTestIT extends BaseResourceIT {
         try {
             performImport(FILE_TO_IMPORT, request);
         } catch (AtlasServiceException e) {
-            throw new SkipException("performTeardown: failed! Subsequent tests results may be affected.", e);
+            throw new SkipException("performTeardown: failed! Subsequent tests results may be affected.");
         }
     }
 }
