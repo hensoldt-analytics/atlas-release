@@ -38,6 +38,8 @@ import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
+import static org.apache.atlas.AtlasErrorCode.IMPORT_ATTEMPTING_EMPTY_ZIP;
+
 
 public class ZipSource implements EntityImportStream {
     private static final Logger LOG = LoggerFactory.getLogger(ZipSource.class);
@@ -49,16 +51,20 @@ public class ZipSource implements EntityImportStream {
     private ImportTransforms     importTransform;
     private int currentPosition;
 
-    public ZipSource(InputStream inputStream) throws IOException {
+    public ZipSource(InputStream inputStream) throws IOException, AtlasBaseException {
         this(inputStream, null);
     }
 
-    public ZipSource(InputStream inputStream, ImportTransforms importTransform) throws IOException {
+    public ZipSource(InputStream inputStream, ImportTransforms importTransform) throws IOException, AtlasBaseException {
         this.inputStream       = inputStream;
         this.guidEntityJsonMap = new HashMap<>();
         this.importTransform   = importTransform;
 
         updateGuidZipEntryMap();
+        if (MapUtils.isEmpty(guidEntityJsonMap)) {
+            throw new AtlasBaseException(IMPORT_ATTEMPTING_EMPTY_ZIP, "Attempting to import empty ZIP.");
+        }
+
         setCreationOrder();
     }
 
@@ -71,7 +77,7 @@ public class ZipSource implements EntityImportStream {
     public AtlasTypesDef getTypesDef() throws AtlasBaseException {
         final String fileName = ZipExportFileNames.ATLAS_TYPESDEF_NAME.toString();
 
-        String s = (String) getFromCache(fileName);
+        String s = getFromCache(fileName);
         return convertFromJson(AtlasTypesDef.class, s);
     }
 
@@ -144,7 +150,12 @@ public class ZipSource implements EntityImportStream {
     }
 
     private String getFromCache(String entryName) {
-        return guidEntityJsonMap.get(entryName);
+        String s  = guidEntityJsonMap.get(entryName);
+        if (StringUtils.isEmpty(s)) {
+            LOG.warn("Could not fetch requested contents of file: {}", entryName);
+        }
+
+        return s;
     }
 
     public void close() {
@@ -247,6 +258,4 @@ public class ZipSource implements EntityImportStream {
     public int getPosition() {
         return currentPosition;
     }
-
-
 }
