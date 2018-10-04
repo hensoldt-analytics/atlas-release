@@ -66,7 +66,6 @@ public class AtlasServerService {
         try {
             return dataAccess.load(server);
         } catch (AtlasBaseException e) {
-            LOG.error("dataAccess", e);
             throw e;
         }
     }
