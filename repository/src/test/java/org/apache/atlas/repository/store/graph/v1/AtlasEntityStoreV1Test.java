@@ -101,7 +101,7 @@ public class AtlasEntityStoreV1Test {
     MetadataService metadataService;
 
     @Inject
-    DeleteHandlerV1 deleteHandler;
+    DeleteHandlerDelegateV1 deleteDelegate;
 
     private AtlasEntitiesWithExtInfo deptEntity;
     private AtlasEntityWithExtInfo   dbEntity;
@@ -147,7 +147,7 @@ public class AtlasEntityStoreV1Test {
 
     @BeforeTest
     public void init() throws Exception {
-        entityStore = new AtlasEntityStoreV1(deleteHandler, typeRegistry, mockChangeNotifier, graphMapper);
+        entityStore = new AtlasEntityStoreV1(deleteDelegate, typeRegistry, mockChangeNotifier, graphMapper);
         RequestContextV1.clear();
         RequestContextV1.get().setUser(TestUtilsV2.TEST_USER);
 
