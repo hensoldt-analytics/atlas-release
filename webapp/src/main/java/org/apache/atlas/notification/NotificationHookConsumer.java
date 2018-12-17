@@ -107,6 +107,7 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
     public static final String CONSUMER_RETRY_INTERVAL           = "atlas.notification.consumer.retry.interval";
     public static final String CONSUMER_MIN_RETRY_INTERVAL       = "atlas.notification.consumer.min.retry.interval";
     public static final String CONSUMER_MAX_RETRY_INTERVAL       = "atlas.notification.consumer.max.retry.interval";
+    public static final String CONSUMER_DISABLED                 = "atlas.notification.consumer.disabled";
     public static final int    SERVER_READY_WAIT_TIME_MS         = 1000;
 
     public static final String CONSUMER_SKIP_HIVE_COLUMN_LINEAGE_HIVE_20633                  = "atlas.notification.consumer.skip.hive_column_lineage.hive-20633";
@@ -127,6 +128,8 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
     private final List<Pattern>                 hiveTablesToPrune  = new ArrayList<>();
     private final Map<String, PreprocessAction> hiveTablesCache;
     private final boolean                       preprocessEnabled;
+    private final boolean                       consumerDisabled;
+
 
     @VisibleForTesting
     final int consumerRetryInterval;
@@ -160,6 +163,7 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
 
         skipHiveColumnLineageHive20633                = applicationProperties.getBoolean(CONSUMER_SKIP_HIVE_COLUMN_LINEAGE_HIVE_20633, true);
         skipHiveColumnLineageHive20633InputsThreshold = applicationProperties.getInt(CONSUMER_SKIP_HIVE_COLUMN_LINEAGE_HIVE_20633_INPUTS_THRESHOLD, 15); // skip if avg # of inputs is > 15
+        consumerDisabled 							  = applicationProperties.getBoolean(CONSUMER_DISABLED, false);
 
         String[] patternHiveTablesToIgnore = applicationProperties.getStringArray(CONSUMER_PREPROCESS_HIVE_TABLE_IGNORE_PATTERN);
         String[] patternHiveTablesToPrune  = applicationProperties.getStringArray(CONSUMER_PREPROCESS_HIVE_TABLE_PRUNE_PATTERN);
@@ -204,6 +208,11 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
 
     @Override
     public void start() throws AtlasException {
+        if (consumerDisabled) {
+            LOG.info("No hook messages will be processed. {} = {}", CONSUMER_DISABLED, consumerDisabled);
+            return;
+        }
+
         startInternal(applicationProperties, null);
     }
 
@@ -240,6 +249,10 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
     public void stop() {
         //Allow for completion of outstanding work
         try {
+            if (consumerDisabled) {
+                return;
+            }
+
             stopConsumerThreads();
             if (executors != null) {
                 executors.shutdown();
@@ -275,6 +288,10 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
      */
     @Override
     public void instanceIsActive() {
+        if (consumerDisabled) {
+            return;
+        }
+
         LOG.info("Reacting to active state: initializing Kafka consumers");
         startConsumers(executors);
     }
@@ -287,6 +304,10 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
      */
     @Override
     public void instanceIsPassive() {
+        if (consumerDisabled) {
+            return;
+        }
+
         LOG.info("Reacting to passive state: shutting down Kafka consumers.");
         stop();
     }
