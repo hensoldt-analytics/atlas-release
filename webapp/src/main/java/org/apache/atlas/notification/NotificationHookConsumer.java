@@ -94,6 +94,7 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
     private static final Logger PERF_LOG = AtlasPerfTracer.getPerfLogger(NotificationHookConsumer.class);
     private static final String LOCALHOST = "localhost";
     private static Logger FAILED_LOG = LoggerFactory.getLogger("FAILED");
+    private static Logger LARGE_MESSAGES_LOG = LoggerFactory.getLogger("LARGE_MESSAGES");
 
     private static final String TYPE_HIVE_COLUMN_LINEAGE = "hive_column_lineage";
     private static final String ATTRIBUTE_INPUTS         = "inputs";
@@ -128,8 +129,8 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
     private final List<Pattern>                 hiveTablesToPrune  = new ArrayList<>();
     private final Map<String, PreprocessAction> hiveTablesCache;
     private final boolean                       preprocessEnabled;
+    private final int                           largeMessageProcessingTimeThresholdMs;
     private final boolean                       consumerDisabled;
-
 
     @VisibleForTesting
     final int consumerRetryInterval;
@@ -163,6 +164,7 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
 
         skipHiveColumnLineageHive20633                = applicationProperties.getBoolean(CONSUMER_SKIP_HIVE_COLUMN_LINEAGE_HIVE_20633, true);
         skipHiveColumnLineageHive20633InputsThreshold = applicationProperties.getInt(CONSUMER_SKIP_HIVE_COLUMN_LINEAGE_HIVE_20633_INPUTS_THRESHOLD, 15); // skip if avg # of inputs is > 15
+        largeMessageProcessingTimeThresholdMs         = applicationProperties.getInt("atlas.notification.consumer.large.message.processing.time.threshold.ms", 60 * 1000);  //  60 sec by default
         consumerDisabled 							  = applicationProperties.getBoolean(CONSUMER_DISABLED, false);
 
         String[] patternHiveTablesToIgnore = applicationProperties.getStringArray(CONSUMER_PREPROCESS_HIVE_TABLE_IGNORE_PATTERN);
@@ -635,6 +637,15 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
                 commit(kafkaMsg);
             } finally {
                 AtlasPerfTracer.log(perf);
+
+                long msgProcessingTime = perf != null ? perf.getElapsedTime() : 0;
+
+                if (msgProcessingTime > largeMessageProcessingTimeThresholdMs) {
+                    String strMessage = AbstractNotification.getMessageJson(message);
+
+                    LOG.warn("msgProcessingTime={}, msgSize={}, topicOffset={}}", msgProcessingTime, strMessage.length(), kafkaMsg.getOffset());
+                    LARGE_MESSAGES_LOG.warn("{\"msgProcessingTime\":{},\"msgSize\":{},\"topicOffset\":{},\"data\":{}}", msgProcessingTime, strMessage.length(), kafkaMsg.getOffset(), strMessage);
+                }
             }
         }
 
