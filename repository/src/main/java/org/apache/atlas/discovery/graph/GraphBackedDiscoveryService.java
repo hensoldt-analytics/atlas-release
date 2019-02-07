@@ -219,7 +219,7 @@ public class GraphBackedDiscoveryService implements DiscoveryService {
                 } else if (value instanceof AtlasVertex) {
                     AtlasVertex<?,?> vertex = (AtlasVertex<?,?>)value;
                     for (String key : vertex.getPropertyKeys()) {
-                        Object propertyValue = AtlasGraphUtilsV1.getProperty(vertex,  key);
+                        Object propertyValue = AtlasGraphUtilsV1.getEncodedProperty(vertex,  key);
                         if (propertyValue != null) {
                             oRow.put(key, propertyValue.toString());
                         }
@@ -234,7 +234,7 @@ public class GraphBackedDiscoveryService implements DiscoveryService {
                     oRow.put("inVertex", edge.getInVertex().getId().toString());
                     oRow.put("outVertex", edge.getOutVertex().getId().toString());
                     for (String propertyKey : edge.getPropertyKeys()) {
-                        oRow.put(propertyKey, AtlasGraphUtilsV1.getProperty(edge, propertyKey).toString());
+                        oRow.put(propertyKey, AtlasGraphUtilsV1.getEncodedProperty(edge, propertyKey).toString());
                     }
                 } else {
                     throw new DiscoveryException(String.format("Cannot process result %s", String.valueOf(value)));
