@@ -21,6 +21,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import kafka.utils.ShutdownableThread;
 import org.apache.atlas.*;
+import org.apache.atlas.exception.AtlasBaseException;
 import org.apache.atlas.ha.HAConfiguration;
 import org.apache.atlas.kafka.AtlasKafkaMessage;
 import org.apache.atlas.listener.ActiveStateChangeHandler;
@@ -128,6 +129,7 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
     public static final String CONSUMER_PREPROCESS_HIVE_TABLE_IGNORE_DUMMY_NAMES             = "atlas.notification.consumer.preprocess.hive_table.ignore.dummy.names";
     public static final String CONSUMER_PREPROCESS_HIVE_TABLE_IGNORE_NAME_PREFIXES_ENABLED   = "atlas.notification.consumer.preprocess.hive_table.ignore.name.prefixes.enabled";
     public static final String CONSUMER_PREPROCESS_HIVE_TABLE_IGNORE_NAME_PREFIXES           = "atlas.notification.consumer.preprocess.hive_table.ignore.name.prefixes";
+    public static final String CONSUMER_PREPROCESS_HIVE_PROCESS_UPD_NAME_WITH_QUALIFIED_NAME = "atlas.notification.consumer.preprocess.hive_process.update.name.with.qualified_name";
 
     private final AtlasEntityStore              atlasEntityStore;
     private final ServiceState                  serviceState;
@@ -137,6 +139,9 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
     private final int                           failedMsgCacheSize;
     private final boolean                       skipHiveColumnLineageHive20633;
     private final int                           skipHiveColumnLineageHive20633InputsThreshold;
+    private final boolean                       updateHiveProcessNameWithQualifiedName;
+    private final int                           largeMessageProcessingTimeThresholdMs;
+    private final boolean                       consumerDisabled;
     private final List<Pattern>                 hiveTablesToIgnore = new ArrayList<>();
     private final List<Pattern>                 hiveTablesToPrune  = new ArrayList<>();
     private final List<String>                  hiveDummyDatabasesToIgnore;
@@ -144,8 +149,6 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
     private final List<String>                  hiveTablePrefixesToIgnore;
     private final Map<String, PreprocessAction> hiveTablesCache;
     private final boolean                       preprocessEnabled;
-    private final int                           largeMessageProcessingTimeThresholdMs;
-    private final boolean                       consumerDisabled;
 
     @VisibleForTesting
     final int consumerRetryInterval;
@@ -179,6 +182,7 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
 
         skipHiveColumnLineageHive20633                = applicationProperties.getBoolean(CONSUMER_SKIP_HIVE_COLUMN_LINEAGE_HIVE_20633, true);
         skipHiveColumnLineageHive20633InputsThreshold = applicationProperties.getInt(CONSUMER_SKIP_HIVE_COLUMN_LINEAGE_HIVE_20633_INPUTS_THRESHOLD, 15); // skip if avg # of inputs is > 15
+        updateHiveProcessNameWithQualifiedName        = applicationProperties.getBoolean(CONSUMER_PREPROCESS_HIVE_PROCESS_UPD_NAME_WITH_QUALIFIED_NAME, true);
         largeMessageProcessingTimeThresholdMs         = applicationProperties.getInt("atlas.notification.consumer.large.message.processing.time.threshold.ms", 60 * 1000);  //  60 sec by default
         consumerDisabled 							  = applicationProperties.getBoolean(CONSUMER_DISABLED, false);
 
@@ -255,7 +259,9 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
             hiveTablePrefixesToIgnore = Collections.emptyList();
         }
 
-        preprocessEnabled = skipHiveColumnLineageHive20633 || !hiveTablesToIgnore.isEmpty() || !hiveTablesToPrune.isEmpty() || !hiveDummyDatabasesToIgnore.isEmpty() || !hiveDummyTablesToIgnore.isEmpty() || !hiveTablePrefixesToIgnore.isEmpty();
+        LOG.info("{}={}", CONSUMER_PREPROCESS_HIVE_PROCESS_UPD_NAME_WITH_QUALIFIED_NAME, updateHiveProcessNameWithQualifiedName);
+
+        preprocessEnabled = skipHiveColumnLineageHive20633 || updateHiveProcessNameWithQualifiedName || !hiveTablesToIgnore.isEmpty() || !hiveTablesToPrune.isEmpty() || !hiveDummyDatabasesToIgnore.isEmpty() || !hiveDummyTablesToIgnore.isEmpty() || !hiveTablePrefixesToIgnore.isEmpty();
 
         LOG.info("{}={}", CONSUMER_SKIP_HIVE_COLUMN_LINEAGE_HIVE_20633, skipHiveColumnLineageHive20633);
         LOG.info("{}={}", CONSUMER_SKIP_HIVE_COLUMN_LINEAGE_HIVE_20633_INPUTS_THRESHOLD, skipHiveColumnLineageHive20633InputsThreshold);
@@ -517,6 +523,33 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
                 if(failedCommitOffsetRecorder.isMessageReplayed(kafkaMsg.getOffset())) {
                     commit(kafkaMsg);
                     return;
+                }
+
+                // covert V1 messages to V2 to enable preProcess
+                try {
+                    switch (message.getType()) {
+                        case ENTITY_CREATE: {
+                            final EntityCreateRequest      createRequest = (EntityCreateRequest) message;
+                            final AtlasEntitiesWithExtInfo entities      = instanceConverter.toAtlasEntities(createRequest.getEntities());
+                            final EntityCreateRequestV2    v2Request     = new EntityCreateRequestV2(message.getUser(), entities);
+
+                            kafkaMsg = new AtlasKafkaMessage<>(v2Request, kafkaMsg.getOffset(), kafkaMsg.getPartition());
+                            message = kafkaMsg.getMessage();
+                        }
+                        break;
+
+                        case ENTITY_FULL_UPDATE: {
+                            final EntityUpdateRequest      updateRequest = (EntityUpdateRequest) message;
+                            final AtlasEntitiesWithExtInfo entities      = instanceConverter.toAtlasEntities(updateRequest.getEntities());
+                            final EntityUpdateRequestV2    v2Request     = new EntityUpdateRequestV2(messageUser, entities);
+
+                            kafkaMsg = new AtlasKafkaMessage<>(v2Request, kafkaMsg.getOffset(), kafkaMsg.getPartition());
+                            message = kafkaMsg.getMessage();
+                        }
+                        break;
+                    }
+                } catch (AtlasBaseException excp) {
+                    LOG.error("handleMessage(): failed to convert V1 message to V2", message.getType().name());
                 }
 
                 preProcessNotificationMessage(kafkaMsg);
@@ -792,7 +825,7 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
         PreprocessorContext context = null;
 
         if (preprocessEnabled) {
-            context = new PreprocessorContext(kafkaMsg, hiveTablesToIgnore, hiveTablesToPrune, hiveTablesCache, hiveDummyDatabasesToIgnore, hiveDummyTablesToIgnore, hiveTablePrefixesToIgnore);
+            context = new PreprocessorContext(kafkaMsg, hiveTablesToIgnore, hiveTablesToPrune, hiveTablesCache, hiveDummyDatabasesToIgnore, hiveDummyTablesToIgnore, hiveTablePrefixesToIgnore, updateHiveProcessNameWithQualifiedName);
 
             if (context.isHivePreprocessEnabled()) {
                 preprocessHiveTypes(context);
@@ -802,10 +835,9 @@ public class NotificationHookConsumer implements Service, ActiveStateChangeHandl
                 skipHiveColumnLineage(context);
             }
 
-
             context.moveRegisteredReferredEntities();
 
-            if (context.isHivePreprocessEnabled() && CollectionUtils.isNotEmpty(context.getEntities())) {
+            if (context.isHivePreprocessEnabled() && CollectionUtils.isNotEmpty(context.getEntities()) && context.getEntities().size() > 1) {
                 // move hive_process and hive_column_lineage entities to end of the list
                 List<AtlasEntity> entities = context.getEntities();
                 int               count    = entities.size();
