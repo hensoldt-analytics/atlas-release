@@ -388,3 +388,4 @@ BUG-76279: Remove problematic tests
 BUG-77446: fix Atlas hook to resolve Hive service check failure with NoClassDefFound exception
 BUG-77993: upgrade frontend-maven-plugin to latest
 HOTFIX-3747 RELENG-7419 lock npm grunt 1.0.4 to fix compile failure
+HOTFIX-3747 RELENG-10438 maven-shade-plugin changed version from 2.4.3 to 3.2.0
