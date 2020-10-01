@@ -21,6 +21,7 @@ package org.apache.atlas.repository.graph;
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.atlas.ApplicationProperties;
 import org.apache.atlas.AtlasException;
+import org.apache.atlas.GraphTransactionInterceptor;
 import org.apache.atlas.RequestContext;
 import org.apache.atlas.model.instance.AtlasEntity;
 import org.apache.atlas.model.instance.AtlasEntity.Status;
@@ -548,7 +549,17 @@ public final class GraphHelper {
     }
 
     public static String getGuid(AtlasVertex vertex) {
-        return vertex.<String>getProperty(Constants.GUID_PROPERTY_KEY, String.class);
+        Object vertexId = vertex.getId();
+
+        String ret = GraphTransactionInterceptor.getVertexGuidFromCache(vertexId);
+
+        if (ret == null) {
+            ret = vertex.<String>getProperty(Constants.GUID_PROPERTY_KEY, String.class);
+
+            GraphTransactionInterceptor.addToVertexGuidCache(vertexId, ret);
+        }
+
+        return ret;
     }
 
     public static String getTypeName(AtlasVertex instanceVertex) {
@@ -570,8 +581,31 @@ public final class GraphHelper {
         return element.getProperty(Constants.STATE_PROPERTY_KEY, String.class);
     }
 
-    public static Status getStatus(AtlasElement element) {
-        return (getState(element) == Id.EntityState.DELETED) ? Status.DELETED : Status.ACTIVE;
+    public static Status getStatus(AtlasVertex vertex) {
+        Object vertexId = vertex.getId();
+
+        Status ret = GraphTransactionInterceptor.getVertexStateFromCache(vertexId);
+
+        if (ret == null) {
+            ret = (getState(vertex) == Id.EntityState.DELETED) ? Status.DELETED : Status.ACTIVE;
+
+            GraphTransactionInterceptor.addToVertexStateCache(vertexId, ret);
+        }
+
+        return ret;
+    }
+
+    public static Status getStatus(AtlasEdge edge) {
+        Object edgeId = edge.getId();
+        Status ret = GraphTransactionInterceptor.getEdgeStateFromCache(edgeId);
+
+        if (ret == null) {
+            ret = (getState(edge) == Id.EntityState.DELETED) ? Status.DELETED : Status.ACTIVE;
+
+            GraphTransactionInterceptor.addToEdgeStateCache(edgeId, ret);
+        }
+
+        return ret;
     }
 
     //Added conditions in fetching system attributes to handle test failures in GremlinTest where these properties are not set
