@@ -27,7 +27,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>org.apache.atlas</groupId>
     <artifactId>apache-atlas</artifactId>
-    <version>0.8.0.2.6.3.0-SNAPSHOT</version>
+    <version>0.8.0.2.6.3.139-3</version>
     <description>Metadata Management and Data Governance Platform over Hadoop</description>
     <name>apache-atlas</name>
     <packaging>pom</packaging>
@@ -508,12 +508,12 @@
         <jersey.version>1.19</jersey.version>
         <tinkerpop.version>2.6.0</tinkerpop.version>
         <titan.version>0.5.4</titan.version>
-        <hadoop.version>2.7.3.2.6.3.0-SNAPSHOT</hadoop.version>
-        <hbase.version>1.1.2.2.6.3.0-SNAPSHOT</hbase.version>
+        <hadoop.version>2.7.3.2.6.3.139-3</hadoop.version>
+        <hbase.version>1.1.2.2.6.3.139-3</hbase.version>
         <solr.version>5.5.1</solr.version>
-        <kafka.version>0.10.1.2.6.3.0-SNAPSHOT</kafka.version>
+        <kafka.version>0.10.1.2.6.3.139-3</kafka.version>
         <curator.version>2.11.0</curator.version>
-        <zookeeper.version>3.4.6.2.6.3.0-SNAPSHOT</zookeeper.version>
+        <zookeeper.version>3.4.6.2.6.3.139-3</zookeeper.version>
 
         <node.download.location>http://nodejs.org/dist/</node.download.location>
 
